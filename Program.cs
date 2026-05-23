@@ -1,13 +1,15 @@
-﻿using YamlDotNet.Serialization;
+﻿using System.Text.Json;
+using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("Usage: dotnet run -- samples/barnashus-reflex-70.txt");
+    Console.WriteLine("Usage: dotnet run -- samples/barnashus-reflex-70.txt [--json]");
     return;
 }
 
 var emailPath = args[0];
+var jsonOutput = args.Contains("--json");
 
 if (!File.Exists(emailPath))
 {
@@ -33,6 +35,19 @@ var deserializer = new DeserializerBuilder()
 var watchlist = deserializer.Deserialize<Watchlist>(watchlistText);
 
 var results = FindMatches(watchlist, normalizedEmail);
+
+if (jsonOutput)
+{
+    var output = new MatchOutput(results.Count > 0, results);
+    var jsonOptions = new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    Console.WriteLine(JsonSerializer.Serialize(output, jsonOptions));
+    return;
+}
 
 if (results.Count == 0)
 {
@@ -155,4 +170,9 @@ public record MatchResult(
     List<string> MatchedKeywords,
     List<string> NegativeKeywords,
     string Notes
+);
+
+public record MatchOutput(
+    bool Relevant,
+    List<MatchResult> Matches
 );
