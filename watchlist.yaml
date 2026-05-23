@@ -1,0 +1,29 @@
+stores:
+  - name: Barnas Hus
+    senderKeywords:
+      - barnas hus
+      - barnashus
+    interests:
+      - product: Reflex 70%
+        mode: all
+        keywords:
+          - reflex
+          - 70%
+        notes: Must mean 70% on Reflex, not just Reflex mentioned somewhere and 70% on something else.
+
+  - name: Kid
+    senderKeywords:
+      - kid
+      - kid interiør
+      - kid interiørklubb
+    interests:
+      - product: Barn og baby
+        mode: any
+        keywords:
+          - barn og baby
+          - baby
+          - barnevarer
+          - barn
+        negativeKeywords:
+          - gjelder ikke barnevarer
+          - unntatt barnevarer
