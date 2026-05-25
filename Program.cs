@@ -154,6 +154,18 @@ static string CreateSnippet(string text, string keyword)
         return "";
     }
 
+    if (text.Contains('\n') || text.Contains('\r'))
+    {
+        var lineStart = text.LastIndexOfAny(['\r', '\n'], matchIndex);
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+
+        var lineEnd = text.IndexOfAny(['\r', '\n'], matchIndex);
+        lineEnd = lineEnd < 0 ? text.Length : lineEnd;
+
+        var line = text[lineStart..lineEnd];
+        return string.Join(" ", line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
     var start = Math.Max(0, matchIndex - contextLength);
     var end = Math.Min(text.Length, matchIndex + keyword.Length + contextLength);
     var snippet = text[start..end];
