@@ -34,7 +34,7 @@ var deserializer = new DeserializerBuilder()
 
 var watchlist = deserializer.Deserialize<Watchlist>(watchlistText);
 
-var results = FindMatches(watchlist, normalizedEmail);
+var results = FindMatches(watchlist, normalizedEmail, emailText);
 
 if (jsonOutput)
 {
@@ -64,6 +64,7 @@ foreach (var result in results)
     Console.WriteLine($"Matched: {result.Product}");
     Console.WriteLine($"Mode: {result.Mode}");
     Console.WriteLine($"Keywords: {string.Join(", ", result.MatchedKeywords)}");
+    Console.WriteLine($"Snippet: {result.Snippet}");
 
     if (result.NegativeKeywords.Count > 0)
     {
@@ -78,7 +79,7 @@ foreach (var result in results)
     Console.WriteLine();
 }
 
-static List<MatchResult> FindMatches(Watchlist watchlist, string normalizedEmail)
+static List<MatchResult> FindMatches(Watchlist watchlist, string normalizedEmail, string emailText)
 {
     var results = new List<MatchResult>();
 
@@ -128,6 +129,7 @@ static List<MatchResult> FindMatches(Watchlist watchlist, string normalizedEmail
                 interest.Product,
                 mode,
                 matchedKeywords,
+                CreateSnippet(emailText, matchedKeywords[0]),
                 matchedNegativeKeywords,
                 interest.Notes
             ));
@@ -140,6 +142,23 @@ static List<MatchResult> FindMatches(Watchlist watchlist, string normalizedEmail
 static string Normalize(string text)
 {
     return text.ToLowerInvariant();
+}
+
+static string CreateSnippet(string text, string keyword)
+{
+    const int contextLength = 60;
+
+    var matchIndex = text.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
+    if (matchIndex < 0)
+    {
+        return "";
+    }
+
+    var start = Math.Max(0, matchIndex - contextLength);
+    var end = Math.Min(text.Length, matchIndex + keyword.Length + contextLength);
+    var snippet = text[start..end];
+
+    return string.Join(" ", snippet.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }
 
 public class Watchlist
@@ -168,6 +187,7 @@ public record MatchResult(
     string Product,
     string Mode,
     List<string> MatchedKeywords,
+    string Snippet,
     List<string> NegativeKeywords,
     string Notes
 );
