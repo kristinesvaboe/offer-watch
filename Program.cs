@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -10,6 +11,7 @@ if (args.Length == 0)
 
 var emailPath = args[0];
 var jsonOutput = args.Contains("--json");
+var aiOutput = args.Contains("--ai");
 
 if (!File.Exists(emailPath))
 {
@@ -36,12 +38,37 @@ var watchlist = deserializer.Deserialize<Watchlist>(watchlistText);
 
 var results = FindMatches(watchlist, normalizedEmail, emailText);
 
+if (aiOutput && results.Count > 0)
+{
+    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+    if (string.IsNullOrWhiteSpace(apiKey))
+    {
+        Console.WriteLine("OPENAI_API_KEY is required when using --ai.");
+        return;
+    }
+
+    using var httpClient = new HttpClient();
+    var aiChecker = new AiRelevanceChecker(httpClient, apiKey);
+
+    for (var i = 0; i < results.Count; i++)
+    {
+        var aiResult = await aiChecker.CheckAsync(results[i]);
+        results[i] = results[i] with
+        {
+            AiRelevant = aiResult.AiRelevant,
+            AiConfidence = aiResult.AiConfidence,
+            AiReason = aiResult.AiReason
+        };
+    }
+}
+
 if (jsonOutput)
 {
     var output = new MatchOutput(results.Count > 0, results);
     var jsonOptions = new JsonSerializerOptions
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true
     };
 
@@ -65,6 +92,13 @@ foreach (var result in results)
     Console.WriteLine($"Mode: {result.Mode}");
     Console.WriteLine($"Keywords: {string.Join(", ", result.MatchedKeywords)}");
     Console.WriteLine($"Snippet: {result.Snippet}");
+
+    if (aiOutput)
+    {
+        Console.WriteLine($"AI relevant: {result.AiRelevant}");
+        Console.WriteLine($"AI confidence: {result.AiConfidence}");
+        Console.WriteLine($"AI reason: {result.AiReason}");
+    }
 
     if (result.NegativeKeywords.Count > 0)
     {
@@ -201,10 +235,176 @@ public record MatchResult(
     List<string> MatchedKeywords,
     string Snippet,
     List<string> NegativeKeywords,
-    string Notes
+    string Notes,
+    bool? AiRelevant = null,
+    string? AiConfidence = null,
+    string? AiReason = null
 );
 
 public record MatchOutput(
     bool Relevant,
     List<MatchResult> Matches
 );
+
+public record AiRelevanceResult(
+    bool AiRelevant,
+    string AiConfidence,
+    string AiReason
+);
+
+public class AiRelevanceChecker
+{
+    private readonly HttpClient httpClient;
+    private readonly string apiKey;
+    private readonly string model;
+
+    public AiRelevanceChecker(HttpClient httpClient, string apiKey)
+    {
+        this.httpClient = httpClient;
+        this.apiKey = apiKey;
+        model = Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini";
+    }
+
+    public async Task<AiRelevanceResult> CheckAsync(MatchResult match)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+        var payload = CreatePayload(match);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(payload),
+            System.Text.Encoding.UTF8,
+            "application/json"
+        );
+
+        using var response = await httpClient.SendAsync(request);
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"AI relevance check failed: {response.StatusCode} {responseText}");
+        }
+
+        var outputText = ExtractOutputText(responseText);
+        var result = JsonSerializer.Deserialize<AiRelevanceResult>(
+            outputText,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+        );
+
+        if (result is null)
+        {
+            throw new InvalidOperationException("AI relevance check returned empty JSON.");
+        }
+
+        return result;
+    }
+
+    private Dictionary<string, object?> CreatePayload(MatchResult match)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["input"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["role"] = "system",
+                    ["content"] = "You decide whether a newsletter snippet is actually a relevant offer for a configured watchlist interest. Return only JSON matching the schema."
+                },
+                new Dictionary<string, object?>
+                {
+                    ["role"] = "user",
+                    ["content"] = $"""
+                    Store: {match.Store}
+                    Product interest: {match.Product}
+                    Matched keywords: {string.Join(", ", match.MatchedKeywords)}
+                    Notes: {match.Notes}
+                    Email snippet: {match.Snippet}
+
+                    Decide if this snippet is actually a relevant offer for the product interest.
+                    """
+                }
+            },
+            ["text"] = new Dictionary<string, object?>
+            {
+                ["format"] = new Dictionary<string, object?>
+                {
+                    ["type"] = "json_schema",
+                    ["name"] = "ai_relevance",
+                    ["strict"] = true,
+                    ["schema"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "object",
+                        ["additionalProperties"] = false,
+                        ["required"] = new[] { "aiRelevant", "aiConfidence", "aiReason" },
+                        ["properties"] = new Dictionary<string, object?>
+                        {
+                            ["aiRelevant"] = new Dictionary<string, object?>
+                            {
+                                ["type"] = "boolean"
+                            },
+                            ["aiConfidence"] = new Dictionary<string, object?>
+                            {
+                                ["type"] = "string",
+                                ["enum"] = new[] { "low", "medium", "high" }
+                            },
+                            ["aiReason"] = new Dictionary<string, object?>
+                            {
+                                ["type"] = "string"
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    private static string ExtractOutputText(string responseText)
+    {
+        using var document = JsonDocument.Parse(responseText);
+        var outputText = FindOutputText(document.RootElement);
+
+        if (string.IsNullOrWhiteSpace(outputText))
+        {
+            throw new InvalidOperationException("AI relevance check response did not include output text.");
+        }
+
+        return outputText;
+    }
+
+    private static string? FindOutputText(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("type", out var type)
+                && type.GetString() == "output_text"
+                && element.TryGetProperty("text", out var text))
+            {
+                return text.GetString();
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                var found = FindOutputText(property.Value);
+                if (!string.IsNullOrWhiteSpace(found))
+                {
+                    return found;
+                }
+            }
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var found = FindOutputText(item);
+                if (!string.IsNullOrWhiteSpace(found))
+                {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    }
+}

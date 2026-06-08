@@ -1,18 +1,25 @@
 # Offer Watch
 
+> This is a tiny pre-baby maternity leave project.
+> If progress suddenly stops, it probably means the baby has arrived. :)
+
 Offer Watch is a small C#/.NET prototype for filtering promotional emails and newsletters against a personal watchlist.
 
 The goal is to reduce newsletter noise by only surfacing offers that are actually relevant to me.
 
 ## Why
 
-I am subscribed to newsletters from stores where I only care about specific offers.
+Some stores send frequent promotional newsletters, and many of them run rotating discounts all the time.
+
+For example, stores like Kid often have campaigns such as 50% off selected bedding, duvets, towels, curtains or children's items. In practice, that means I usually do not want to buy those things at full price. If I know I need something, I would rather wait until the relevant category is on sale.
+
+The problem is that I do not care about every campaign. I only care about specific offers from specific stores.
 
 Examples:
 - Barnas Hus: Reflex at 70% off
 - Kid: offers for baby/children's items
 
-Instead of manually reading every newsletter, Offer Watch checks the email text against a watchlist and tells me whether it looks relevant.
+Instead of manually reading every newsletter, Offer Watch checks the email text against a personal watchlist and tells me whether it looks relevant.
 
 ## Current MVP
 
@@ -28,6 +35,7 @@ The current version:
 - prints human-readable console output
 - supports structured JSON output with `--json`
 - includes a short snippet around the match
+- optionally checks matched offers with AI using `--ai`
 
 ## Example
 
@@ -128,6 +136,31 @@ Run with JSON output:
 dotnet run -- samples/kid-baby.txt --json
 ```
 
+Run with AI relevance checking:
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+dotnet run -- samples/kid-baby.txt --ai
+```
+
+AI relevance checks only run when `--ai` is provided. The app sends each rule-based match to the model with the store, product interest, matched keywords, notes and snippet, then prints:
+
+- `AI relevant`
+- `AI confidence`
+- `AI reason`
+
+Use AI with JSON output:
+
+```bash
+dotnet run -- samples/kid-baby.txt --json --ai
+```
+
+By default, `--ai` uses `gpt-4o-mini`. You can override the model:
+
+```bash
+export OPENAI_MODEL="gpt-4o-mini"
+```
+
 ## Privacy
 
 Real emails may contain personal information, tracking links, unsubscribe links or customer identifiers.
@@ -150,11 +183,10 @@ For that reason:
 - Support `negativeKeywords`
 - Output structured JSON with `--json`
 - Add snippets around matched keywords
+- Add optional AI relevance checks with `--ai`
 
 ### Next
 
-- Improve snippets so they show the full relevant line or section
-- Add AI relevance checks for ambiguous matches
 - Add natural language watchlist management
   - "Follow offers on Reflex 70% from Barnas Hus"
   - "Remove Princess spisesmekker"
