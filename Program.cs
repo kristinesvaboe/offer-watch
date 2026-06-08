@@ -5,15 +5,33 @@ using YamlDotNet.Serialization.NamingConventions;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("Usage: dotnet run -- samples/barnashus-reflex-70.txt [--json]");
+    Console.WriteLine("Usage: dotnet run -- samples/barnashus-reflex-70.txt [--json] [--ai]");
+    Console.WriteLine("       dotnet run -- --folder samples [--json] [--ai]");
     return;
 }
 
-var emailPath = args[0];
+var folderIndex = Array.IndexOf(args, "--folder");
+var folderMode = folderIndex >= 0;
+var folderPath = folderMode && folderIndex + 1 < args.Length
+    ? args[folderIndex + 1]
+    : "";
+var emailPath = folderMode ? "" : args[0];
 var jsonOutput = args.Contains("--json");
 var aiOutput = args.Contains("--ai");
 
-if (!File.Exists(emailPath))
+if (folderMode && string.IsNullOrWhiteSpace(folderPath))
+{
+    Console.WriteLine("--folder requires a path.");
+    return;
+}
+
+if (folderMode && !Directory.Exists(folderPath))
+{
+    Console.WriteLine($"Folder not found: {folderPath}");
+    return;
+}
+
+if (!folderMode && !File.Exists(emailPath))
 {
     Console.WriteLine($"File not found: {emailPath}");
     return;
@@ -25,20 +43,24 @@ if (!File.Exists("watchlist.yaml"))
     return;
 }
 
-var watchlistText = File.ReadAllText("watchlist.yaml");
-var emailText = File.ReadAllText(emailPath);
-var normalizedEmail = Normalize(emailText);
+var jsonOptions = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = true
+};
 
+var watchlistText = File.ReadAllText("watchlist.yaml");
 var deserializer = new DeserializerBuilder()
     .WithNamingConvention(CamelCaseNamingConvention.Instance)
     .IgnoreUnmatchedProperties()
     .Build();
 
 var watchlist = deserializer.Deserialize<Watchlist>(watchlistText);
+AiRelevanceChecker? aiChecker = null;
+using var httpClient = new HttpClient();
 
-var results = FindMatches(watchlist, normalizedEmail, emailText);
-
-if (aiOutput && results.Count > 0)
+if (aiOutput)
 {
     var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
     if (string.IsNullOrWhiteSpace(apiKey))
@@ -47,31 +69,55 @@ if (aiOutput && results.Count > 0)
         return;
     }
 
-    using var httpClient = new HttpClient();
-    var aiChecker = new AiRelevanceChecker(httpClient, apiKey);
-
-    for (var i = 0; i < results.Count; i++)
-    {
-        var aiResult = await aiChecker.CheckAsync(results[i]);
-        results[i] = results[i] with
-        {
-            AiRelevant = aiResult.AiRelevant,
-            AiConfidence = aiResult.AiConfidence,
-            AiReason = aiResult.AiReason
-        };
-    }
+    aiChecker = new AiRelevanceChecker(httpClient, apiKey);
 }
+
+if (folderMode)
+{
+    var fileResults = new List<FileMatchOutput>();
+    var files = Directory
+        .EnumerateFiles(folderPath, "*.txt")
+        .OrderBy(Path.GetFileName)
+        .ToList();
+
+    foreach (var file in files)
+    {
+        var matches = await ProcessFileAsync(file, watchlist, aiChecker);
+        fileResults.Add(new FileMatchOutput(Path.GetFileName(file), matches.Count > 0, matches));
+    }
+
+    if (jsonOutput)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new FolderMatchOutput(fileResults), jsonOptions));
+        return;
+    }
+
+    foreach (var fileResult in fileResults)
+    {
+        Console.WriteLine($"File: {fileResult.FileName}");
+        Console.WriteLine($"Relevant: {(fileResult.Relevant ? "yes" : "no")}");
+
+        if (fileResult.Matches.Count > 0)
+        {
+            Console.WriteLine();
+
+            foreach (var result in fileResult.Matches)
+            {
+                PrintMatch(result, aiOutput);
+            }
+        }
+
+        Console.WriteLine();
+    }
+
+    return;
+}
+
+var results = await ProcessFileAsync(emailPath, watchlist, aiChecker);
 
 if (jsonOutput)
 {
     var output = new MatchOutput(results.Count > 0, results);
-    var jsonOptions = new JsonSerializerOptions
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true
-    };
-
     Console.WriteLine(JsonSerializer.Serialize(output, jsonOptions));
     return;
 }
@@ -86,6 +132,38 @@ Console.WriteLine("Relevant: yes");
 Console.WriteLine();
 
 foreach (var result in results)
+{
+    PrintMatch(result, aiOutput);
+}
+
+static async Task<List<MatchResult>> ProcessFileAsync(
+    string emailPath,
+    Watchlist watchlist,
+    AiRelevanceChecker? aiChecker
+)
+{
+    var emailText = File.ReadAllText(emailPath);
+    var normalizedEmail = Normalize(emailText);
+    var results = FindMatches(watchlist, normalizedEmail, emailText);
+
+    if (aiChecker is not null && results.Count > 0)
+    {
+        for (var i = 0; i < results.Count; i++)
+        {
+            var aiResult = await aiChecker.CheckAsync(results[i]);
+            results[i] = results[i] with
+            {
+                AiRelevant = aiResult.AiRelevant,
+                AiConfidence = aiResult.AiConfidence,
+                AiReason = aiResult.AiReason
+            };
+        }
+    }
+
+    return results;
+}
+
+static void PrintMatch(MatchResult result, bool aiOutput)
 {
     Console.WriteLine($"Store: {result.Store}");
     Console.WriteLine($"Matched: {result.Product}");
@@ -244,6 +322,16 @@ public record MatchResult(
 public record MatchOutput(
     bool Relevant,
     List<MatchResult> Matches
+);
+
+public record FileMatchOutput(
+    string FileName,
+    bool Relevant,
+    List<MatchResult> Matches
+);
+
+public record FolderMatchOutput(
+    List<FileMatchOutput> Files
 );
 
 public record AiRelevanceResult(

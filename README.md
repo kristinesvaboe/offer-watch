@@ -36,6 +36,7 @@ The current version:
 - supports structured JSON output with `--json`
 - includes a short snippet around the match
 - optionally checks matched offers with AI using `--ai`
+- can process all `.txt` files in a folder with `--folder`
 
 ## Example
 
@@ -136,6 +137,18 @@ Run with JSON output:
 dotnet run -- samples/kid-baby.txt --json
 ```
 
+Process a folder of `.txt` samples:
+
+```bash
+dotnet run -- --folder samples
+```
+
+Process a folder with JSON output:
+
+```bash
+dotnet run -- --folder samples --json
+```
+
 Run with AI relevance checking:
 
 ```bash
@@ -184,6 +197,7 @@ For that reason:
 - Output structured JSON with `--json`
 - Add snippets around matched keywords
 - Add optional AI relevance checks with `--ai`
+- Add folder processing with `--folder`
 
 ### Next
 
