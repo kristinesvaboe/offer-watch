@@ -150,13 +150,33 @@ static async Task<List<MatchResult>> ProcessFileAsync(
     {
         for (var i = 0; i < results.Count; i++)
         {
-            var aiResult = await aiChecker.CheckAsync(results[i]);
-            results[i] = results[i] with
+            try
             {
-                AiRelevant = aiResult.AiRelevant,
-                AiConfidence = aiResult.AiConfidence,
-                AiReason = aiResult.AiReason
-            };
+                var aiResult = await aiChecker.CheckAsync(results[i]);
+                results[i] = results[i] with
+                {
+                    AiAvailable = true,
+                    AiRelevant = aiResult.AiRelevant,
+                    AiConfidence = aiResult.AiConfidence,
+                    AiReason = aiResult.AiReason
+                };
+            }
+            catch (AiRelevanceException ex)
+            {
+                results[i] = results[i] with
+                {
+                    AiAvailable = false,
+                    AiError = ex.SafeMessage
+                };
+            }
+            catch (Exception ex)
+            {
+                results[i] = results[i] with
+                {
+                    AiAvailable = false,
+                    AiError = CreateSafeAiError(ex)
+                };
+            }
         }
     }
 
@@ -173,9 +193,17 @@ static void PrintMatch(MatchResult result, bool aiOutput)
 
     if (aiOutput)
     {
-        Console.WriteLine($"AI relevant: {result.AiRelevant}");
-        Console.WriteLine($"AI confidence: {result.AiConfidence}");
-        Console.WriteLine($"AI reason: {result.AiReason}");
+        if (result.AiAvailable == false)
+        {
+            Console.WriteLine("AI check: unavailable");
+            Console.WriteLine($"AI reason: OpenAI API error: {result.AiError}");
+        }
+        else
+        {
+            Console.WriteLine($"AI relevant: {result.AiRelevant}");
+            Console.WriteLine($"AI confidence: {result.AiConfidence}");
+            Console.WriteLine($"AI reason: {result.AiReason}");
+        }
     }
 
     if (result.NegativeKeywords.Count > 0)
@@ -189,6 +217,33 @@ static void PrintMatch(MatchResult result, bool aiOutput)
     }
 
     Console.WriteLine();
+}
+
+static string CreateSafeAiError(Exception ex)
+{
+    if (ex is HttpRequestException)
+    {
+        return "network_error";
+    }
+
+    if (ex is TaskCanceledException)
+    {
+        return "timeout";
+    }
+
+    if (ex is JsonException)
+    {
+        return "invalid_response";
+    }
+
+    if (string.IsNullOrWhiteSpace(ex.Message))
+    {
+        return "unknown_error";
+    }
+
+    return ex.Message.Length <= 120
+        ? ex.Message
+        : ex.Message[..120];
 }
 
 static List<MatchResult> FindMatches(Watchlist watchlist, string normalizedEmail, string emailText)
@@ -314,9 +369,11 @@ public record MatchResult(
     string Snippet,
     List<string> NegativeKeywords,
     string Notes,
+    bool? AiAvailable = null,
     bool? AiRelevant = null,
     string? AiConfidence = null,
-    string? AiReason = null
+    string? AiReason = null,
+    string? AiError = null
 );
 
 public record MatchOutput(
@@ -339,6 +396,17 @@ public record AiRelevanceResult(
     string AiConfidence,
     string AiReason
 );
+
+public class AiRelevanceException : Exception
+{
+    public AiRelevanceException(string safeMessage)
+        : base(safeMessage)
+    {
+        SafeMessage = safeMessage;
+    }
+
+    public string SafeMessage { get; }
+}
 
 public class AiRelevanceChecker
 {
@@ -370,7 +438,7 @@ public class AiRelevanceChecker
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"AI relevance check failed: {response.StatusCode} {responseText}");
+            throw new AiRelevanceException(ExtractErrorCode(responseText) ?? response.StatusCode.ToString());
         }
 
         var outputText = ExtractOutputText(responseText);
@@ -381,7 +449,7 @@ public class AiRelevanceChecker
 
         if (result is null)
         {
-            throw new InvalidOperationException("AI relevance check returned empty JSON.");
+            throw new AiRelevanceException("empty_response");
         }
 
         return result;
@@ -454,10 +522,45 @@ public class AiRelevanceChecker
 
         if (string.IsNullOrWhiteSpace(outputText))
         {
-            throw new InvalidOperationException("AI relevance check response did not include output text.");
+            throw new AiRelevanceException("missing_output_text");
         }
 
         return outputText;
+    }
+
+    private static string? ExtractErrorCode(string responseText)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+
+            if (document.RootElement.TryGetProperty("error", out var error))
+            {
+                if (error.TryGetProperty("code", out var code)
+                    && !string.IsNullOrWhiteSpace(code.GetString()))
+                {
+                    return code.GetString();
+                }
+
+                if (error.TryGetProperty("type", out var type)
+                    && !string.IsNullOrWhiteSpace(type.GetString()))
+                {
+                    return type.GetString();
+                }
+
+                if (error.TryGetProperty("message", out var message)
+                    && !string.IsNullOrWhiteSpace(message.GetString()))
+                {
+                    return message.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private static string? FindOutputText(JsonElement element)
