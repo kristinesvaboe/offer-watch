@@ -115,7 +115,7 @@ Matches only if all keywords are found.
 
 Useful when an offer depends on a combination, for example both `reflex` and `70%`.
 
-This is still a simple rule and may produce false positives if the keywords appear in different parts of the newsletter. A later AI relevance check should handle this better.
+This is still a simple rule and may produce false positives if the keywords appear in different parts of the newsletter. The optional AI relevance check can help handle this better.
 
 ## Run locally
 
@@ -214,4 +214,4 @@ For that reason:
 
 ## Status
 
-Early prototype.
+Local MVP. Still experimental.
