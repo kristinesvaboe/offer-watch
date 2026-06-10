@@ -13,6 +13,7 @@ var folderPath = folderMode && folderIndex + 1 < args.Length
 var emailPath = folderMode ? "" : args[0];
 var jsonOutput = args.Contains("--json");
 var aiOutput = args.Contains("--ai");
+var debugExtractedText = args.Contains("--debug-extracted-text");
 
 if (folderMode && string.IsNullOrWhiteSpace(folderPath))
 {
@@ -55,6 +56,7 @@ if (aiOutput)
 }
 
 var matcher = new OfferMatcher(new SnippetExtractor());
+var emailTextExtractor = new EmailTextExtractor();
 var consoleOutput = new ConsoleOutputWriter();
 var jsonOutputWriter = new JsonOutputWriter();
 
@@ -62,13 +64,21 @@ if (folderMode)
 {
     var fileResults = new List<FileMatchOutput>();
     var files = Directory
-        .EnumerateFiles(folderPath, "*.txt")
+        .EnumerateFiles(folderPath)
+        .Where(IsSupportedInputFile)
         .OrderBy(Path.GetFileName)
         .ToList();
 
     foreach (var file in files)
     {
-        var matches = await ProcessFileAsync(file, watchlist, matcher, aiChecker);
+        var matches = await ProcessFileAsync(
+            file,
+            watchlist,
+            matcher,
+            emailTextExtractor,
+            aiChecker,
+            debugExtractedText && !jsonOutput ? PrintExtractedText : null
+        );
         fileResults.Add(new FileMatchOutput(Path.GetFileName(file), matches.Count > 0, matches));
     }
 
@@ -82,7 +92,14 @@ if (folderMode)
     return;
 }
 
-var results = await ProcessFileAsync(emailPath, watchlist, matcher, aiChecker);
+var results = await ProcessFileAsync(
+    emailPath,
+    watchlist,
+    matcher,
+    emailTextExtractor,
+    aiChecker,
+    debugExtractedText && !jsonOutput ? PrintExtractedText : null
+);
 
 if (jsonOutput)
 {
@@ -96,10 +113,13 @@ static async Task<List<MatchResult>> ProcessFileAsync(
     string emailPath,
     Watchlist watchlist,
     OfferMatcher matcher,
-    AiRelevanceChecker? aiChecker
+    EmailTextExtractor emailTextExtractor,
+    AiRelevanceChecker? aiChecker,
+    Action<string>? debugExtractedText
 )
 {
-    var emailText = File.ReadAllText(emailPath);
+    var emailText = emailTextExtractor.ExtractText(emailPath);
+    debugExtractedText?.Invoke(emailText);
     var results = matcher.FindMatches(watchlist, emailText);
 
     if (aiChecker is null || results.Count == 0)
@@ -139,4 +159,18 @@ static async Task<List<MatchResult>> ProcessFileAsync(
     }
 
     return results;
+}
+
+static bool IsSupportedInputFile(string path)
+{
+    var extension = Path.GetExtension(path);
+    return string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(extension, ".eml", StringComparison.OrdinalIgnoreCase);
+}
+
+static void PrintExtractedText(string text)
+{
+    Console.WriteLine("--- Extracted text start ---");
+    Console.WriteLine(text);
+    Console.WriteLine("--- Extracted text end ---");
 }

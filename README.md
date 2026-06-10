@@ -37,6 +37,7 @@ The current version:
 - includes a short snippet around the match
 - optionally checks matched offers with AI using `--ai`
 - can process all `.txt` files in a folder with `--folder`
+- can process saved `.eml` email files
 
 ## Example
 
@@ -149,6 +150,14 @@ Process a folder with JSON output:
 dotnet run -- --folder samples --json
 ```
 
+Process a saved email file:
+
+```bash
+dotnet run -- samples/private/newsletter.eml
+```
+
+When processing `.eml` files, Offer Watch extracts the email `From`, `Subject` and body text. It prefers the plain text body, and falls back to readable text from the HTML body when needed. Folder mode processes both `.txt` and `.eml` files.
+
 Run with AI relevance checking:
 
 ```bash
@@ -198,6 +207,7 @@ For that reason:
 - Add snippets around matched keywords
 - Add optional AI relevance checks with `--ai`
 - Add folder processing with `--folder`
+- Add local `.eml` file support
 
 ### Next
 

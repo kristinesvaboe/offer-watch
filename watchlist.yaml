@@ -21,9 +21,15 @@ stores:
         mode: any
         keywords:
           - barn og baby
+          - barn og babyvarer
+          - babyvarer
           - baby
           - barnevarer
           - barn
         negativeKeywords:
           - gjelder ikke barnevarer
+          - gjelder ikke barn og babyvarer
+          - gjelder ikke babyvarer
           - unntatt barnevarer
+          - unntatt barn og babyvarer
+          - unntatt babyvarer

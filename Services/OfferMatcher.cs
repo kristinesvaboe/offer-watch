@@ -28,10 +28,6 @@ public class OfferMatcher
                     .Where(keyword => normalizedEmail.Contains(Normalize(keyword)))
                     .ToList();
 
-                var matchedNegativeKeywords = interest.NegativeKeywords
-                    .Where(keyword => normalizedEmail.Contains(Normalize(keyword)))
-                    .ToList();
-
                 var mode = string.IsNullOrWhiteSpace(interest.Mode)
                     ? "any"
                     : interest.Mode.ToLowerInvariant();
@@ -47,6 +43,11 @@ public class OfferMatcher
                 {
                     continue;
                 }
+
+                var negativeKeywordContext = CreateNegativeKeywordContext(emailText, matchedKeywords[0]);
+                var matchedNegativeKeywords = interest.NegativeKeywords
+                    .Where(keyword => negativeKeywordContext.Contains(Normalize(keyword)))
+                    .ToList();
 
                 if (matchedNegativeKeywords.Count > 0)
                 {
@@ -71,5 +72,21 @@ public class OfferMatcher
     private static string Normalize(string text)
     {
         return text.ToLowerInvariant();
+    }
+
+    private static string CreateNegativeKeywordContext(string text, string keyword)
+    {
+        const int contextLength = 250;
+
+        var matchIndex = text.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
+        if (matchIndex < 0)
+        {
+            return "";
+        }
+
+        var start = Math.Max(0, matchIndex - contextLength);
+        var end = Math.Min(text.Length, matchIndex + keyword.Length + contextLength);
+
+        return Normalize(text[start..end]);
     }
 }

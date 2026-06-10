@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MimeKit" Version="4.17.0" />
     <PackageReference Include="YamlDotNet" Version="18.0.0" />
   </ItemGroup>
 
