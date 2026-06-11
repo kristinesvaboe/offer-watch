@@ -17,6 +17,7 @@ var folderPath = folderMode && folderIndex + 1 < args.Length
 var emailPath = folderMode || mailboxMode ? "" : args[0];
 var jsonOutput = args.Contains("--json");
 var aiOutput = args.Contains("--ai");
+var useAi = aiOutput || mailboxMode;
 var debugExtractedText = args.Contains("--debug-extracted-text");
 
 if (folderMode && string.IsNullOrWhiteSpace(folderPath))
@@ -46,12 +47,24 @@ if (!File.Exists("watchlist.yaml"))
 var watchlist = WatchlistLoader.Load("watchlist.yaml");
 AiRelevanceChecker? aiChecker = null;
 using var httpClient = new HttpClient();
+var consoleOutput = new ConsoleOutputWriter();
+var jsonOutputWriter = new JsonOutputWriter();
 
-if (aiOutput)
+if (useAi)
 {
     var apiKey = OfferWatchConfiguration.GetOpenAiApiKey(configuration);
     if (string.IsNullOrWhiteSpace(apiKey))
     {
+        if (mailboxMode)
+        {
+            WriteMailboxConfigurationError(
+                "OfferWatch:OpenAI:ApiKey or OPENAI_API_KEY is required when using --mailbox.",
+                jsonOutput,
+                jsonOutputWriter
+            );
+            return;
+        }
+
         Console.WriteLine("OPENAI_API_KEY is required when using --ai.");
         return;
     }
@@ -62,8 +75,6 @@ if (aiOutput)
 var matcher = new OfferMatcher(new SnippetExtractor());
 var offerProcessor = new OfferProcessor(matcher, aiChecker);
 var emailTextExtractor = new EmailTextExtractor();
-var consoleOutput = new ConsoleOutputWriter();
-var jsonOutputWriter = new JsonOutputWriter();
 
 if (folderMode)
 {
@@ -154,7 +165,7 @@ if (mailboxMode)
     }
 
     var mailboxResults = new List<MailboxMessageOutput>();
-    var processedUids = new List<uint>();
+    var seenUids = new List<uint>();
     var relevantEmails = new List<(MailboxEmail Email, List<MatchResult> Matches)>();
 
     foreach (var email in emails)
@@ -166,21 +177,27 @@ if (mailboxMode)
         }
 
         var matches = await offerProcessor.ProcessAsync(email.Text, watchlist);
+        var aiFailed = HasAiUnavailableMatch(matches);
+        var relevant = HasAiRelevantMatch(matches);
+
         mailboxResults.Add(new MailboxMessageOutput(
             email.MessageIdentifier,
             email.Uid,
             email.From,
             email.Subject,
-            matches.Count > 0,
+            relevant,
             matches
         ));
 
-        if (matches.Count > 0)
+        if (matches.Count == 0 || !aiFailed)
+        {
+            seenUids.Add(email.Uid);
+        }
+
+        if (relevant && !aiFailed)
         {
             relevantEmails.Add((email, matches));
         }
-
-        processedUids.Add(email.Uid);
     }
 
     try
@@ -212,12 +229,12 @@ if (mailboxMode)
     if (jsonOutput)
     {
         jsonOutputWriter.Write(new MailboxOutput(mailboxResults));
-        await mailboxClient.MarkSeenAsync(mailboxSettings, processedUids);
+        await mailboxClient.MarkSeenAsync(mailboxSettings, seenUids);
         return;
     }
 
-    consoleOutput.WriteMailbox(mailboxResults, aiOutput);
-    await mailboxClient.MarkSeenAsync(mailboxSettings, processedUids);
+    consoleOutput.WriteMailbox(mailboxResults, true);
+    await mailboxClient.MarkSeenAsync(mailboxSettings, seenUids);
     return;
 }
 
@@ -273,6 +290,16 @@ static void WriteMailboxConfigurationError(string message, bool jsonOutput, Json
     }
 
     Console.WriteLine(message);
+}
+
+static bool HasAiRelevantMatch(List<MatchResult> matches)
+{
+    return matches.Any(match => match.AiAvailable == true && match.AiRelevant == true);
+}
+
+static bool HasAiUnavailableMatch(List<MatchResult> matches)
+{
+    return matches.Any(match => match.AiAvailable == false);
 }
 
 static string CreateSafeMailboxError(Exception ex)

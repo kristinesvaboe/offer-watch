@@ -159,14 +159,14 @@ dotnet run -- samples/private/newsletter.eml
 
 When processing `.eml` files, Offer Watch extracts the email `From`, `Subject` and body text. It prefers the plain text body, and falls back to readable text from the HTML body when needed. Folder mode processes both `.txt` and `.eml` files.
 
-Run with AI relevance checking:
+Run file or folder checks with AI relevance checking:
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
 dotnet run -- samples/kid-baby.txt --ai
 ```
 
-AI relevance checks only run when `--ai` is provided. The app sends each rule-based match to the model with the store, product interest, matched keywords, notes and snippet, then prints:
+In file and folder modes, AI relevance checks only run when `--ai` is provided. The app sends each rule-based match to the model with the store, product interest, matched keywords, notes and snippet, then prints:
 
 - `AI relevant`
 - `AI confidence`
@@ -232,11 +232,7 @@ Use JSON output:
 dotnet run -- --mailbox --json
 ```
 
-Use AI relevance checks:
-
-```bash
-dotnet run -- --mailbox --ai
-```
+Mailbox mode uses AI relevance checks by default. The `--ai` flag is still accepted in mailbox mode, but it is not required.
 
 Required configuration values:
 
@@ -253,6 +249,10 @@ Required configuration values:
     },
     "Forwarding": {
       "To": "kristine@example.com"
+    },
+    "OpenAI": {
+      "ApiKey": "openai-api-key",
+      "Model": "gpt-4o-mini"
     }
   }
 }
@@ -287,10 +287,13 @@ The default mailbox host is `imap.gmail.com`, the default IMAP port is `993`, an
 Mailbox mode:
 
 - fetches recent unread messages first
-- automatically forwards relevant matches to the configured forwarding recipient
+- requires OpenAI configuration and runs AI relevance checks by default
+- automatically forwards matches only after AI successfully says they are relevant
 - includes the full original email with an Offer Watch explanation above it
-- does not forward non-relevant messages
-- marks successfully processed messages as read only after processing and forwarding succeeds
+- does not forward messages when AI says they are not relevant
+- marks messages as read when there are no rule-based candidates, or when AI successfully evaluates candidates as not relevant
+- marks forwarded messages as read only after processing and forwarding succeeds
+- leaves messages unread for retry when AI configuration is missing or AI evaluation fails
 - treats unread messages in Gmail as not yet processed
 - does not delete, archive or move emails
 - includes metadata in forwarded emails for future feedback handling
