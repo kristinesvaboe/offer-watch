@@ -60,6 +60,7 @@ if (aiOutput)
 }
 
 var matcher = new OfferMatcher(new SnippetExtractor());
+var offerProcessor = new OfferProcessor(matcher, aiChecker);
 var emailTextExtractor = new EmailTextExtractor();
 var consoleOutput = new ConsoleOutputWriter();
 var jsonOutputWriter = new JsonOutputWriter();
@@ -78,9 +79,8 @@ if (folderMode)
         var matches = await ProcessFileAsync(
             file,
             watchlist,
-            matcher,
+            offerProcessor,
             emailTextExtractor,
-            aiChecker,
             debugExtractedText && !jsonOutput ? PrintExtractedText : null
         );
         fileResults.Add(new FileMatchOutput(Path.GetFileName(file), matches.Count > 0, matches));
@@ -156,7 +156,7 @@ if (mailboxMode)
             PrintExtractedText(email.Text);
         }
 
-        var matches = await ProcessEmailTextAsync(email.Text, watchlist, matcher, aiChecker);
+        var matches = await offerProcessor.ProcessAsync(email.Text, watchlist);
         mailboxResults.Add(new MailboxMessageOutput(
             email.MessageIdentifier,
             email.Uid,
@@ -185,9 +185,8 @@ if (mailboxMode)
 var results = await ProcessFileAsync(
     emailPath,
     watchlist,
-    matcher,
+    offerProcessor,
     emailTextExtractor,
-    aiChecker,
     debugExtractedText && !jsonOutput ? PrintExtractedText : null
 );
 
@@ -202,63 +201,14 @@ consoleOutput.WriteSingleFile(results, aiOutput);
 static async Task<List<MatchResult>> ProcessFileAsync(
     string emailPath,
     Watchlist watchlist,
-    OfferMatcher matcher,
+    OfferProcessor offerProcessor,
     EmailTextExtractor emailTextExtractor,
-    AiRelevanceChecker? aiChecker,
     Action<string>? debugExtractedText
 )
 {
     var emailText = emailTextExtractor.ExtractText(emailPath);
     debugExtractedText?.Invoke(emailText);
-    return await ProcessEmailTextAsync(emailText, watchlist, matcher, aiChecker);
-}
-
-static async Task<List<MatchResult>> ProcessEmailTextAsync(
-    string emailText,
-    Watchlist watchlist,
-    OfferMatcher matcher,
-    AiRelevanceChecker? aiChecker
-)
-{
-    var results = matcher.FindMatches(watchlist, emailText);
-
-    if (aiChecker is null || results.Count == 0)
-    {
-        return results;
-    }
-
-    for (var i = 0; i < results.Count; i++)
-    {
-        try
-        {
-            var aiResult = await aiChecker.CheckAsync(results[i]);
-            results[i] = results[i] with
-            {
-                AiAvailable = true,
-                AiRelevant = aiResult.AiRelevant,
-                AiConfidence = aiResult.AiConfidence,
-                AiReason = aiResult.AiReason
-            };
-        }
-        catch (AiRelevanceException ex)
-        {
-            results[i] = results[i] with
-            {
-                AiAvailable = false,
-                AiError = ex.SafeMessage
-            };
-        }
-        catch (Exception ex)
-        {
-            results[i] = results[i] with
-            {
-                AiAvailable = false,
-                AiError = AiRelevanceChecker.CreateSafeError(ex)
-            };
-        }
-    }
-
-    return results;
+    return await offerProcessor.ProcessAsync(emailText, watchlist);
 }
 
 static bool IsSupportedInputFile(string path)
