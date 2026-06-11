@@ -144,97 +144,36 @@ if (mailboxMode)
 
     var mailboxClient = new MailboxClient(emailTextExtractor);
     var mailboxForwarder = new MailboxForwarder();
-    List<MailboxEmail> emails;
+    var mailboxProcessor = new MailboxProcessor(mailboxClient, mailboxForwarder, offerProcessor);
+    var mailboxResult = await mailboxProcessor.ProcessAsync(
+        mailboxSettings,
+        smtpSettings,
+        forwardingRecipient,
+        watchlist,
+        debugExtractedText && !jsonOutput ? PrintExtractedText : null
+    );
 
-    try
+    if (mailboxResult.Output.Error is not null)
     {
-        emails = await mailboxClient.FetchUnreadMessagesAsync(mailboxSettings);
-    }
-    catch (Exception ex)
-    {
-        var error = CreateSafeMailboxError(ex);
-
         if (jsonOutput)
         {
-            jsonOutputWriter.Write(new MailboxOutput([], error));
+            jsonOutputWriter.Write(mailboxResult.Output);
             return;
         }
 
-        Console.WriteLine($"Mailbox error: {error}");
-        return;
-    }
-
-    var mailboxResults = new List<MailboxMessageOutput>();
-    var seenUids = new List<uint>();
-    var relevantEmails = new List<(MailboxEmail Email, List<MatchResult> Matches)>();
-
-    foreach (var email in emails)
-    {
-        var shouldPrintDebugExtractedText = debugExtractedText && !jsonOutput;
-        if (shouldPrintDebugExtractedText)
-        {
-            PrintExtractedText(email.Text);
-        }
-
-        var matches = await offerProcessor.ProcessAsync(email.Text, watchlist);
-        var aiFailed = HasAiUnavailableMatch(matches);
-        var relevant = HasAiRelevantMatch(matches);
-
-        mailboxResults.Add(new MailboxMessageOutput(
-            email.MessageIdentifier,
-            email.Uid,
-            email.From,
-            email.Subject,
-            relevant,
-            matches
-        ));
-
-        if (matches.Count == 0 || !aiFailed)
-        {
-            seenUids.Add(email.Uid);
-        }
-
-        if (relevant && !aiFailed)
-        {
-            relevantEmails.Add((email, matches));
-        }
-    }
-
-    try
-    {
-        foreach (var relevantEmail in relevantEmails)
-        {
-            await mailboxForwarder.ForwardRelevantAsync(
-                smtpSettings,
-                forwardingRecipient,
-                relevantEmail.Email,
-                relevantEmail.Matches
-            );
-        }
-    }
-    catch (Exception ex)
-    {
-        var error = CreateSafeMailboxError(ex);
-
-        if (jsonOutput)
-        {
-            jsonOutputWriter.Write(new MailboxOutput(mailboxResults, error));
-            return;
-        }
-
-        Console.WriteLine($"Mailbox error: {error}");
+        Console.WriteLine($"Mailbox error: {mailboxResult.Output.Error}");
         return;
     }
 
     if (jsonOutput)
     {
-        jsonOutputWriter.Write(new MailboxOutput(mailboxResults));
-        await mailboxClient.MarkSeenAsync(mailboxSettings, seenUids);
+        jsonOutputWriter.Write(mailboxResult.Output);
+        await mailboxProcessor.MarkProcessedMessagesSeenAsync(mailboxSettings, mailboxResult);
         return;
     }
 
-    consoleOutput.WriteMailbox(mailboxResults, true);
-    await mailboxClient.MarkSeenAsync(mailboxSettings, seenUids);
+    consoleOutput.WriteMailbox(mailboxResult.Output.Messages, true);
+    await mailboxProcessor.MarkProcessedMessagesSeenAsync(mailboxSettings, mailboxResult);
     return;
 }
 
@@ -290,36 +229,4 @@ static void WriteMailboxConfigurationError(string message, bool jsonOutput, Json
     }
 
     Console.WriteLine(message);
-}
-
-static bool HasAiRelevantMatch(List<MatchResult> matches)
-{
-    return matches.Any(match => match.AiAvailable == true && match.AiRelevant == true);
-}
-
-static bool HasAiUnavailableMatch(List<MatchResult> matches)
-{
-    return matches.Any(match => match.AiAvailable == false);
-}
-
-static string CreateSafeMailboxError(Exception ex)
-{
-    if (ex is System.Net.Sockets.SocketException || ex is HttpRequestException)
-    {
-        return "network_error";
-    }
-
-    if (ex is TimeoutException || ex is TaskCanceledException)
-    {
-        return "timeout";
-    }
-
-    if (string.IsNullOrWhiteSpace(ex.Message))
-    {
-        return "mailbox_error";
-    }
-
-    return ex.Message.Length <= 120
-        ? ex.Message
-        : ex.Message[..120];
 }
