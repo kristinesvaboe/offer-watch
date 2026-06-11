@@ -38,6 +38,7 @@ The current version:
 - optionally checks matched offers with AI using `--ai`
 - can process all `.txt` files in a folder with `--folder`
 - can process saved `.eml` email files
+- can read recent unread messages from a dedicated Gmail IMAP mailbox with `--mailbox`
 
 ## Example
 
@@ -183,6 +184,102 @@ By default, `--ai` uses `gpt-4o-mini`. You can override the model:
 export OPENAI_MODEL="gpt-4o-mini"
 ```
 
+### Local Configuration
+
+For local development, Offer Watch automatically loads `appsettings-local.json` from the project root if it exists. Environment variables are also supported and override local JSON values.
+
+Example:
+
+```json
+{
+  "OfferWatch": {
+    "Imap": {
+      "Host": "imap.gmail.com",
+      "Port": 993,
+      "User": "offers-mailbox@gmail.com",
+      "Password": "gmail-app-password"
+    },
+    "Smtp": {
+      "Host": "smtp.gmail.com",
+      "Port": 587,
+      "User": "offers-mailbox@gmail.com",
+      "Password": "gmail-app-password"
+    },
+    "OpenAI": {
+      "ApiKey": "optional-local-api-key",
+      "Model": "gpt-4o-mini"
+    }
+  }
+}
+```
+
+Never commit `appsettings-local.json`.
+
+### Mailbox Mode
+
+Mailbox mode reads recent unread messages from a dedicated Gmail offers mailbox over IMAP:
+
+```bash
+dotnet run -- --mailbox
+```
+
+Use JSON output:
+
+```bash
+dotnet run -- --mailbox --json
+```
+
+Use AI relevance checks:
+
+```bash
+dotnet run -- --mailbox --ai
+```
+
+Required configuration values:
+
+```json
+{
+  "OfferWatch": {
+    "Imap": {
+      "User": "offers-mailbox@gmail.com",
+      "Password": "gmail-app-password"
+    }
+  }
+}
+```
+
+Optional environment variables:
+
+```bash
+OFFERWATCH_IMAP_HOST="imap.gmail.com"
+OFFERWATCH_IMAP_PORT="993"
+OFFERWATCH_MAILBOX_MAX_MESSAGES="20"
+```
+
+The existing environment variable names are still supported and override `appsettings-local.json`:
+
+- `OFFERWATCH_IMAP_HOST`
+- `OFFERWATCH_IMAP_PORT`
+- `OFFERWATCH_IMAP_USER`
+- `OFFERWATCH_IMAP_PASSWORD`
+- `OFFERWATCH_SMTP_HOST`
+- `OFFERWATCH_SMTP_PORT`
+- `OFFERWATCH_SMTP_USER`
+- `OFFERWATCH_SMTP_PASSWORD`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+
+The default mailbox host is `imap.gmail.com`, the default port is `993`, and SSL is always used.
+
+Mailbox mode:
+
+- fetches recent unread messages first
+- does not mark emails as read
+- does not delete, archive, move or forward emails
+- stores processed message identifiers in `.offerwatch-state.json`
+
+Never commit `.offerwatch-state.json`.
+
 ## Privacy
 
 Real emails may contain personal information, tracking links, unsubscribe links or customer identifiers.
@@ -192,8 +289,14 @@ For that reason:
 - sanitized newsletter samples can be stored in `samples/`
 - full raw emails should not be committed
 - private samples should be placed in `samples/private/`
+- `appsettings-local.json` must not be committed
+- `.offerwatch-state.json` must not be committed
 
 `samples/private/` is ignored by git.
+
+For hosted environments such as Azure, use App Settings, Key Vault or another managed secret store. Do not deploy or commit `appsettings-local.json`.
+
+Gmail app passwords are used here only as a pragmatic local MVP setup for a dedicated mailbox. Google does not generally recommend app passwords for modern applications. Never use a normal Gmail password. A production or hosted version should use OAuth or another more secure authentication flow instead of Gmail app passwords.
 
 ## Roadmap
 
@@ -208,6 +311,7 @@ For that reason:
 - Add optional AI relevance checks with `--ai`
 - Add folder processing with `--folder`
 - Add local `.eml` file support
+- Add local Gmail IMAP mailbox MVP with `--mailbox`
 
 ### Next
 
@@ -218,8 +322,7 @@ For that reason:
 
 ### Later
 
-- Support parsing real email formats such as `.eml` or HTML newsletters
-- Connect to a dedicated offers mailbox
+- Use OAuth or a managed mailbox authentication flow
 - Forward or notify only relevant offers
 
 ## Status

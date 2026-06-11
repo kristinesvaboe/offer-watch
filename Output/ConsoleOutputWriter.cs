@@ -38,6 +38,28 @@ public class ConsoleOutputWriter
         }
     }
 
+    public void WriteMailbox(List<MailboxMessageOutput> messages, bool aiOutput)
+    {
+        foreach (var message in messages)
+        {
+            Console.WriteLine($"From: {message.From}");
+            Console.WriteLine($"Subject: {message.Subject}");
+            Console.WriteLine($"Relevant: {(message.Relevant ? "yes" : "no")}");
+
+            if (message.Matches.Count > 0)
+            {
+                Console.WriteLine();
+
+                foreach (var result in message.Matches)
+                {
+                    WriteMatch(result, aiOutput);
+                }
+            }
+
+            Console.WriteLine();
+        }
+    }
+
     private static void WriteMatch(MatchResult result, bool aiOutput)
     {
         Console.WriteLine($"Store: {result.Store}");

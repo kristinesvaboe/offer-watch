@@ -16,9 +16,14 @@ public class EmailTextExtractor
         return File.ReadAllText(path);
     }
 
-    private static string ExtractEmlText(string path)
+    private string ExtractEmlText(string path)
     {
         var message = MimeMessage.Load(path);
+        return ExtractText(message);
+    }
+
+    public string ExtractText(MimeMessage message)
+    {
         var body = ShouldUseHtmlBody(message.TextBody, message.HtmlBody)
             ? HtmlToText(message.HtmlBody ?? "")
             : message.TextBody ?? "";

@@ -6,11 +6,11 @@ public class AiRelevanceChecker
     private readonly string apiKey;
     private readonly string model;
 
-    public AiRelevanceChecker(HttpClient httpClient, string apiKey)
+    public AiRelevanceChecker(HttpClient httpClient, string apiKey, string? model = null)
     {
         this.httpClient = httpClient;
         this.apiKey = apiKey;
-        model = Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini";
+        this.model = string.IsNullOrWhiteSpace(model) ? "gpt-4o-mini" : model;
     }
 
     public async Task<AiRelevanceResult> CheckAsync(MatchResult match)
