@@ -205,6 +205,9 @@ Example:
       "User": "offers-mailbox@gmail.com",
       "Password": "gmail-app-password"
     },
+    "Forwarding": {
+      "To": "kristine@example.com"
+    },
     "OpenAI": {
       "ApiKey": "optional-local-api-key",
       "Model": "gpt-4o-mini"
@@ -243,6 +246,13 @@ Required configuration values:
     "Imap": {
       "User": "offers-mailbox@gmail.com",
       "Password": "gmail-app-password"
+    },
+    "Smtp": {
+      "User": "offers-mailbox@gmail.com",
+      "Password": "gmail-app-password"
+    },
+    "Forwarding": {
+      "To": "kristine@example.com"
     }
   }
 }
@@ -254,6 +264,8 @@ Optional environment variables:
 OFFERWATCH_IMAP_HOST="imap.gmail.com"
 OFFERWATCH_IMAP_PORT="993"
 OFFERWATCH_MAILBOX_MAX_MESSAGES="20"
+OFFERWATCH_SMTP_HOST="smtp.gmail.com"
+OFFERWATCH_SMTP_PORT="587"
 ```
 
 The existing environment variable names are still supported and override `appsettings-local.json`:
@@ -266,17 +278,24 @@ The existing environment variable names are still supported and override `appset
 - `OFFERWATCH_SMTP_PORT`
 - `OFFERWATCH_SMTP_USER`
 - `OFFERWATCH_SMTP_PASSWORD`
+- `OFFERWATCH_FORWARD_TO`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
 
-The default mailbox host is `imap.gmail.com`, the default port is `993`, and SSL is always used.
+The default mailbox host is `imap.gmail.com`, the default IMAP port is `993`, and SSL is always used. The default SMTP host is `smtp.gmail.com`, the default SMTP port is `587`, and STARTTLS is used.
 
 Mailbox mode:
 
 - fetches recent unread messages first
-- marks successfully processed messages as read
+- automatically forwards relevant matches to the configured forwarding recipient
+- includes the full original email with an Offer Watch explanation above it
+- does not forward non-relevant messages
+- marks successfully processed messages as read only after processing and forwarding succeeds
 - treats unread messages in Gmail as not yet processed
-- does not delete, archive, move or forward emails
+- does not delete, archive or move emails
+- includes metadata in forwarded emails for future feedback handling
+
+Replies to forwarded emails are not handled yet. Later, replies may be used to correct matches or update the watchlist.
 
 ## Privacy
 

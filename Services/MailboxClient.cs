@@ -39,7 +39,8 @@ public class MailboxClient
                 uid.Id,
                 message.From.ToString(),
                 message.Subject ?? "",
-                emailTextExtractor.ExtractText(message)
+                emailTextExtractor.ExtractText(message),
+                message
             ));
         }
 
@@ -81,5 +82,6 @@ public record MailboxEmail(
     uint Uid,
     string From,
     string Subject,
-    string Text
+    string Text,
+    MimeMessage OriginalMessage
 );

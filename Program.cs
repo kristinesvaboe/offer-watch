@@ -101,11 +101,38 @@ if (mailboxMode)
     var mailboxSettings = OfferWatchConfiguration.GetMailboxSettings(configuration);
     if (mailboxSettings is null)
     {
-        Console.WriteLine("OFFERWATCH_IMAP_USER and OFFERWATCH_IMAP_PASSWORD are required when using --mailbox.");
+        WriteMailboxConfigurationError(
+            "OFFERWATCH_IMAP_USER and OFFERWATCH_IMAP_PASSWORD are required when using --mailbox.",
+            jsonOutput,
+            jsonOutputWriter
+        );
+        return;
+    }
+
+    var forwardingRecipient = OfferWatchConfiguration.GetForwardingRecipient(configuration);
+    if (string.IsNullOrWhiteSpace(forwardingRecipient))
+    {
+        WriteMailboxConfigurationError(
+            "OfferWatch:Forwarding:To or OFFERWATCH_FORWARD_TO is required when using --mailbox.",
+            jsonOutput,
+            jsonOutputWriter
+        );
+        return;
+    }
+
+    var smtpSettings = OfferWatchConfiguration.GetSmtpSettings(configuration);
+    if (smtpSettings is null)
+    {
+        WriteMailboxConfigurationError(
+            "OfferWatch:Smtp:User and OfferWatch:Smtp:Password, or OFFERWATCH_SMTP_USER and OFFERWATCH_SMTP_PASSWORD, are required when using --mailbox.",
+            jsonOutput,
+            jsonOutputWriter
+        );
         return;
     }
 
     var mailboxClient = new MailboxClient(emailTextExtractor);
+    var mailboxForwarder = new MailboxForwarder();
     List<MailboxEmail> emails;
 
     try
@@ -128,6 +155,7 @@ if (mailboxMode)
 
     var mailboxResults = new List<MailboxMessageOutput>();
     var processedUids = new List<uint>();
+    var relevantEmails = new List<(MailboxEmail Email, List<MatchResult> Matches)>();
 
     foreach (var email in emails)
     {
@@ -147,7 +175,38 @@ if (mailboxMode)
             matches
         ));
 
+        if (matches.Count > 0)
+        {
+            relevantEmails.Add((email, matches));
+        }
+
         processedUids.Add(email.Uid);
+    }
+
+    try
+    {
+        foreach (var relevantEmail in relevantEmails)
+        {
+            await mailboxForwarder.ForwardRelevantAsync(
+                smtpSettings,
+                forwardingRecipient,
+                relevantEmail.Email,
+                relevantEmail.Matches
+            );
+        }
+    }
+    catch (Exception ex)
+    {
+        var error = CreateSafeMailboxError(ex);
+
+        if (jsonOutput)
+        {
+            jsonOutputWriter.Write(new MailboxOutput(mailboxResults, error));
+            return;
+        }
+
+        Console.WriteLine($"Mailbox error: {error}");
+        return;
     }
 
     if (jsonOutput)
@@ -203,6 +262,17 @@ static void PrintExtractedText(string text)
     Console.WriteLine("--- Extracted text start ---");
     Console.WriteLine(text);
     Console.WriteLine("--- Extracted text end ---");
+}
+
+static void WriteMailboxConfigurationError(string message, bool jsonOutput, JsonOutputWriter jsonOutputWriter)
+{
+    if (jsonOutput)
+    {
+        jsonOutputWriter.Write(new MailboxOutput([], message));
+        return;
+    }
+
+    Console.WriteLine(message);
 }
 
 static string CreateSafeMailboxError(Exception ex)

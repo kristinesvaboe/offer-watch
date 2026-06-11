@@ -67,6 +67,48 @@ public static class OfferWatchConfiguration
         );
     }
 
+    public static SmtpSettings? GetSmtpSettings(IConfiguration configuration)
+    {
+        var user = FirstNonEmpty(
+            Environment.GetEnvironmentVariable("OFFERWATCH_SMTP_USER"),
+            configuration["OfferWatch:Smtp:User"]
+        );
+        var password = FirstNonEmpty(
+            Environment.GetEnvironmentVariable("OFFERWATCH_SMTP_PASSWORD"),
+            configuration["OfferWatch:Smtp:Password"]
+        );
+
+        if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(password))
+        {
+            return null;
+        }
+
+        var host = FirstNonEmpty(
+            Environment.GetEnvironmentVariable("OFFERWATCH_SMTP_HOST"),
+            configuration["OfferWatch:Smtp:Host"],
+            "smtp.gmail.com"
+        );
+
+        return new SmtpSettings(
+            host,
+            GetInt(
+                Environment.GetEnvironmentVariable("OFFERWATCH_SMTP_PORT"),
+                configuration["OfferWatch:Smtp:Port"],
+                587
+            ),
+            user,
+            password
+        );
+    }
+
+    public static string? GetForwardingRecipient(IConfiguration configuration)
+    {
+        return FirstNonEmpty(
+            Environment.GetEnvironmentVariable("OFFERWATCH_FORWARD_TO"),
+            configuration["OfferWatch:Forwarding:To"]
+        );
+    }
+
     private static string FirstNonEmpty(params string?[] values)
     {
         foreach (var value in values)
