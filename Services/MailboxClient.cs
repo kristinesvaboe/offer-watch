@@ -12,7 +12,7 @@ public class MailboxClient
         this.emailTextExtractor = emailTextExtractor;
     }
 
-    public async Task<List<MailboxEmail>> FetchUnreadMessagesAsync(MailboxSettings settings, HashSet<string> processedIds)
+    public async Task<List<MailboxEmail>> FetchUnreadMessagesAsync(MailboxSettings settings)
     {
         using var client = new ImapClient();
         await client.ConnectAsync(settings.Host, settings.Port, settings.UseSsl);
@@ -34,11 +34,6 @@ public class MailboxClient
             var message = await inbox.GetMessageAsync(uid);
             var identifier = CreateMessageIdentifier(message, uid);
 
-            if (processedIds.Contains(identifier))
-            {
-                continue;
-            }
-
             messages.Add(new MailboxEmail(
                 identifier,
                 uid.Id,
@@ -50,6 +45,27 @@ public class MailboxClient
 
         await client.DisconnectAsync(true);
         return messages;
+    }
+
+    public async Task MarkSeenAsync(MailboxSettings settings, IEnumerable<uint> uids)
+    {
+        var uniqueIds = uids
+            .Select(uid => new UniqueId(uid))
+            .ToList();
+
+        if (uniqueIds.Count == 0)
+        {
+            return;
+        }
+
+        using var client = new ImapClient();
+        await client.ConnectAsync(settings.Host, settings.Port, settings.UseSsl);
+        await client.AuthenticateAsync(settings.User, settings.Password);
+
+        var inbox = client.Inbox;
+        await inbox.OpenAsync(FolderAccess.ReadWrite);
+        await inbox.AddFlagsAsync(uniqueIds, MessageFlags.Seen, true);
+        await client.DisconnectAsync(true);
     }
 
     private static string CreateMessageIdentifier(MimeMessage message, UniqueId uid)

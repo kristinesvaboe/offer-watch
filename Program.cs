@@ -105,32 +105,12 @@ if (mailboxMode)
         return;
     }
 
-    var stateStore = new ProcessedStateStore(".offerwatch-state.json");
-    ProcessedState state;
-
-    try
-    {
-        state = stateStore.Load();
-    }
-    catch (ProcessedStateException ex)
-    {
-        if (jsonOutput)
-        {
-            jsonOutputWriter.Write(new MailboxOutput([], ex.Message));
-            return;
-        }
-
-        Console.WriteLine(ex.Message);
-        return;
-    }
-
-    var processedIds = state.ProcessedMailboxMessageIds.ToHashSet();
     var mailboxClient = new MailboxClient(emailTextExtractor);
     List<MailboxEmail> emails;
 
     try
     {
-        emails = await mailboxClient.FetchUnreadMessagesAsync(mailboxSettings, processedIds);
+        emails = await mailboxClient.FetchUnreadMessagesAsync(mailboxSettings);
     }
     catch (Exception ex)
     {
@@ -147,6 +127,7 @@ if (mailboxMode)
     }
 
     var mailboxResults = new List<MailboxMessageOutput>();
+    var processedUids = new List<uint>();
 
     foreach (var email in emails)
     {
@@ -166,19 +147,18 @@ if (mailboxMode)
             matches
         ));
 
-        processedIds.Add(email.MessageIdentifier);
+        processedUids.Add(email.Uid);
     }
-
-    state.ProcessedMailboxMessageIds = processedIds.OrderBy(id => id).ToList();
-    stateStore.Save(state);
 
     if (jsonOutput)
     {
         jsonOutputWriter.Write(new MailboxOutput(mailboxResults));
+        await mailboxClient.MarkSeenAsync(mailboxSettings, processedUids);
         return;
     }
 
     consoleOutput.WriteMailbox(mailboxResults, aiOutput);
+    await mailboxClient.MarkSeenAsync(mailboxSettings, processedUids);
     return;
 }
 

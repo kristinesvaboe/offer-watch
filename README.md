@@ -274,11 +274,9 @@ The default mailbox host is `imap.gmail.com`, the default port is `993`, and SSL
 Mailbox mode:
 
 - fetches recent unread messages first
-- does not mark emails as read
+- marks successfully processed messages as read
+- treats unread messages in Gmail as not yet processed
 - does not delete, archive, move or forward emails
-- stores processed message identifiers in `.offerwatch-state.json`
-
-Never commit `.offerwatch-state.json`.
 
 ## Privacy
 
@@ -290,7 +288,6 @@ For that reason:
 - full raw emails should not be committed
 - private samples should be placed in `samples/private/`
 - `appsettings-local.json` must not be committed
-- `.offerwatch-state.json` must not be committed
 
 `samples/private/` is ignored by git.
 
