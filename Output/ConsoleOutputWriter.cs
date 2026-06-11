@@ -40,6 +40,12 @@ public class ConsoleOutputWriter
 
     public void WriteMailbox(List<MailboxMessageOutput> messages, bool aiOutput)
     {
+        if (messages.Count == 0)
+        {
+            Console.WriteLine("No new mailbox messages to process.");
+            return;
+        }
+
         foreach (var message in messages)
         {
             Console.WriteLine($"From: {message.From}");
