@@ -31,12 +31,18 @@ public class MailboxProcessor
         }
         catch (Exception ex)
         {
-            return new MailboxProcessingResult(new MailboxOutput([], CreateSafeMailboxError(ex)), []);
+            var error = CreateSafeMailboxError(ex);
+            return new MailboxProcessingResult(
+                new MailboxOutput([], error),
+                [],
+                new MailboxRunSummary(0, 0, 0, 1, 0),
+                []
+            );
         }
 
         var mailboxResults = new List<MailboxMessageOutput>();
         var seenUids = new List<uint>();
-        var relevantEmails = new List<(MailboxEmail Email, List<MatchResult> Matches)>();
+        var messageLogs = new List<MailboxMessageRunLog>();
 
         foreach (var email in emails)
         {
@@ -45,6 +51,9 @@ public class MailboxProcessor
             var matches = await offerProcessor.ProcessAsync(email.Text, watchlist);
             var aiFailed = HasAiUnavailableMatch(matches);
             var relevant = HasAiRelevantMatch(matches);
+            var forwarded = false;
+            var shouldMarkRead = false;
+            string? error = null;
 
             mailboxResults.Add(new MailboxMessageOutput(
                 email.MessageIdentifier,
@@ -55,46 +64,150 @@ public class MailboxProcessor
                 matches
             ));
 
-            if (matches.Count == 0 || !aiFailed)
+            if (matches.Count == 0)
+            {
+                shouldMarkRead = true;
+            }
+            else if (aiFailed)
+            {
+                error = "AI evaluation unavailable";
+            }
+            else if (relevant)
+            {
+                try
+                {
+                    await mailboxForwarder.ForwardRelevantAsync(
+                        smtpSettings,
+                        forwardingRecipient,
+                        email,
+                        matches
+                    );
+                    forwarded = true;
+                    shouldMarkRead = true;
+                }
+                catch (Exception ex)
+                {
+                    // Scheduled runs should keep processing other messages.
+                    // This message stays unread because it was not fully handled.
+                    error = $"Forwarding failed: {CreateSafeMailboxError(ex)}";
+                }
+            }
+            else
+            {
+                shouldMarkRead = true;
+            }
+
+            if (shouldMarkRead)
             {
                 seenUids.Add(email.Uid);
             }
 
-            if (relevant && !aiFailed)
+            messageLogs.Add(new MailboxMessageRunLog(
+                email.Uid,
+                email.Subject,
+                matches.Count > 0,
+                relevant,
+                forwarded,
+                false,
+                !string.IsNullOrWhiteSpace(error),
+                error
+            ));
+        }
+
+        var markReadError = await MarkSeenAsync(mailboxSettings, seenUids);
+        if (markReadError is not null)
+        {
+            var seenUidSet = seenUids.ToHashSet();
+            for (var i = 0; i < messageLogs.Count; i++)
             {
-                relevantEmails.Add((email, matches));
+                var log = messageLogs[i];
+                if (seenUidSet.Contains(log.Uid))
+                {
+                    messageLogs[i] = log with
+                    {
+                        Failed = true,
+                        Error = $"Mark read failed: {markReadError}"
+                    };
+                }
+            }
+        }
+        else
+        {
+            var seenUidSet = seenUids.ToHashSet();
+            for (var i = 0; i < messageLogs.Count; i++)
+            {
+                var log = messageLogs[i];
+                if (seenUidSet.Contains(log.Uid))
+                {
+                    messageLogs[i] = log with { MarkedRead = true };
+                }
             }
         }
 
+        return new MailboxProcessingResult(
+            new MailboxOutput(mailboxResults),
+            seenUids,
+            CreateSummary(messageLogs),
+            messageLogs
+        );
+    }
+
+    public static void WriteRunLog(MailboxProcessingResult result)
+    {
+        Console.WriteLine($"Unread messages found: {result.Summary.TotalUnread}");
+        Console.WriteLine();
+
+        foreach (var message in result.MessageLogs)
+        {
+            Console.WriteLine($"Subject: {message.Subject}");
+            Console.WriteLine($"Rule candidates: {FormatBool(message.HadRuleCandidates)}");
+            Console.WriteLine($"AI relevant: {FormatBool(message.AiRelevant)}");
+            Console.WriteLine($"Forwarded: {FormatBool(message.Forwarded)}");
+            Console.WriteLine($"Marked read: {FormatBool(message.MarkedRead)}");
+
+            if (!string.IsNullOrWhiteSpace(message.Error))
+            {
+                Console.WriteLine($"Error: {message.Error}");
+            }
+
+            Console.WriteLine();
+        }
+
+        Console.WriteLine("Summary:");
+        Console.WriteLine($"Total unread messages found: {result.Summary.TotalUnread}");
+        Console.WriteLine($"Forwarded: {result.Summary.Forwarded}");
+        Console.WriteLine($"Ignored/not relevant: {result.Summary.IgnoredNotRelevant}");
+        Console.WriteLine($"Failed: {result.Summary.Failed}");
+        Console.WriteLine($"Left unread: {result.Summary.LeftUnread}");
+    }
+
+    private async Task<string?> MarkSeenAsync(MailboxSettings settings, IReadOnlyList<uint> seenUids)
+    {
         try
         {
-            foreach (var relevantEmail in relevantEmails)
-            {
-                await mailboxForwarder.ForwardRelevantAsync(
-                    smtpSettings,
-                    forwardingRecipient,
-                    relevantEmail.Email,
-                    relevantEmail.Matches
-                );
-            }
+            await mailboxClient.MarkSeenAsync(settings, seenUids);
+            return null;
         }
         catch (Exception ex)
         {
-            return new MailboxProcessingResult(
-                new MailboxOutput(mailboxResults, CreateSafeMailboxError(ex)),
-                []
-            );
+            return CreateSafeMailboxError(ex);
         }
-
-        return new MailboxProcessingResult(new MailboxOutput(mailboxResults), seenUids);
     }
 
-    public async Task MarkProcessedMessagesSeenAsync(
-        MailboxSettings settings,
-        MailboxProcessingResult result
-    )
+    private static MailboxRunSummary CreateSummary(IReadOnlyList<MailboxMessageRunLog> messageLogs)
     {
-        await mailboxClient.MarkSeenAsync(settings, result.SeenUids);
+        return new MailboxRunSummary(
+            messageLogs.Count,
+            messageLogs.Count(log => log.Forwarded),
+            messageLogs.Count(log => !log.Forwarded && log.MarkedRead),
+            messageLogs.Count(log => log.Failed),
+            messageLogs.Count(log => !log.MarkedRead)
+        );
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value ? "yes" : "no";
     }
 
     private static bool HasAiRelevantMatch(List<MatchResult> matches)
@@ -132,5 +245,26 @@ public class MailboxProcessor
 
 public record MailboxProcessingResult(
     MailboxOutput Output,
-    IReadOnlyList<uint> SeenUids
+    IReadOnlyList<uint> SeenUids,
+    MailboxRunSummary Summary,
+    IReadOnlyList<MailboxMessageRunLog> MessageLogs
+);
+
+public record MailboxRunSummary(
+    int TotalUnread,
+    int Forwarded,
+    int IgnoredNotRelevant,
+    int Failed,
+    int LeftUnread
+);
+
+public record MailboxMessageRunLog(
+    uint Uid,
+    string Subject,
+    bool HadRuleCandidates,
+    bool AiRelevant,
+    bool Forwarded,
+    bool MarkedRead,
+    bool Failed,
+    string? Error
 );

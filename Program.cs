@@ -139,6 +139,12 @@ if (mailboxMode)
     var mailboxClient = new MailboxClient(emailTextExtractor);
     var mailboxForwarder = new MailboxForwarder();
     var mailboxProcessor = new MailboxProcessor(mailboxClient, mailboxForwarder, offerProcessor);
+
+    if (!jsonOutput)
+    {
+        Console.WriteLine("Mailbox run started.");
+    }
+
     var mailboxResult = await mailboxProcessor.ProcessAsync(
         mailboxSettings,
         smtpSettings,
@@ -155,6 +161,7 @@ if (mailboxMode)
             return;
         }
 
+        MailboxProcessor.WriteRunLog(mailboxResult);
         Console.WriteLine($"Mailbox error: {mailboxResult.Output.Error}");
         return;
     }
@@ -162,12 +169,10 @@ if (mailboxMode)
     if (jsonOutput)
     {
         jsonOutputWriter.Write(mailboxResult.Output);
-        await mailboxProcessor.MarkProcessedMessagesSeenAsync(mailboxSettings, mailboxResult);
         return;
     }
 
-    consoleOutput.WriteMailbox(mailboxResult.Output.Messages, true);
-    await mailboxProcessor.MarkProcessedMessagesSeenAsync(mailboxSettings, mailboxResult);
+    MailboxProcessor.WriteRunLog(mailboxResult);
     return;
 }
 
