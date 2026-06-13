@@ -50,43 +50,78 @@ public class MailboxForwarder
     {
         var lines = new List<string>
         {
-            "Offer Watch found a relevant newsletter offer.",
-            "",
-            $"Mailbox message id: {email.MessageIdentifier}",
-            $"Original From: {email.From}",
-            $"Original Subject: {email.Subject}",
+            CreateOpeningSentence(matches),
             ""
         };
 
-        for (var i = 0; i < matches.Count; i++)
+        if (matches.Count == 1)
         {
-            var match = matches[i];
-            lines.Add($"Match {i + 1}:");
-            lines.Add($"Store: {match.Store}");
-            lines.Add($"Product/interest: {match.Product}");
-            lines.Add($"Matched keywords: {string.Join(", ", match.MatchedKeywords)}");
-            lines.Add($"Snippet: {match.Snippet}");
-
-            if (match.AiAvailable == true)
-            {
-                lines.Add($"AI relevant: {match.AiRelevant}");
-                lines.Add($"AI confidence: {match.AiConfidence}");
-                lines.Add($"AI reason: {match.AiReason}");
-            }
-
-            if (match.AiAvailable == false)
-            {
-                lines.Add($"AI check: unavailable");
-                lines.Add($"AI reason: OpenAI API error: {match.AiError}");
-            }
-
+            var match = matches[0];
+            lines.Add("The part that matched was:");
             lines.Add("");
+            lines.Add($"\"{match.Snippet}\"");
+            lines.Add("");
+            lines.Add(CreateConfidenceSentence(match));
+        }
+        else
+        {
+            lines.Add("A few parts looked relevant:");
+            lines.Add("");
+
+            foreach (var match in matches)
+            {
+                lines.Add($"- {match.Store} looked like it had an offer on {FormatOfferType(match.Product)}: \"{match.Snippet}\"");
+                lines.Add($"  {CreateConfidenceSentence(match)}");
+            }
         }
 
-        lines.Add("Later, replies to this forwarded email may be used to correct matches or update the watchlist.");
         lines.Add("");
-        lines.Add("The full original email is attached below.");
+        lines.Add("The original newsletter is attached below.");
+        lines.Add("");
+        lines.Add("Reference for future feedback:");
+        lines.Add($"Mailbox message id: {email.MessageIdentifier}");
+        lines.Add($"Original subject: {email.Subject}");
+        lines.Add("");
+        lines.Add("Later, replies to this forwarded email may be used to correct matches or update the watchlist.");
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string CreateOpeningSentence(List<MatchResult> matches)
+    {
+        if (matches.Count == 1)
+        {
+            var match = matches[0];
+            return $"Offer Watch forwarded this because it looks like {match.Store} has an offer on {FormatOfferType(match.Product)}.";
+        }
+
+        var stores = string.Join(", ", matches.Select(match => match.Store).Distinct());
+        return $"Offer Watch forwarded this because it found a few offers that look relevant from {stores}.";
+    }
+
+    private static string CreateConfidenceSentence(MatchResult match)
+    {
+        if (match.AiAvailable == true)
+        {
+            var confidence = string.IsNullOrWhiteSpace(match.AiConfidence)
+                ? "available"
+                : match.AiConfidence;
+
+            return match.AiRelevant == true
+                ? $"The AI assessment also considered this relevant with {confidence} confidence."
+                : $"The AI assessment was not confident this was relevant.";
+        }
+
+        return "The AI assessment was not available for this item.";
+    }
+
+    private static string FormatOfferType(string product)
+    {
+        if (string.Equals(product, "Barn og baby", StringComparison.OrdinalIgnoreCase))
+        {
+            return "baby and children's items";
+        }
+
+        return product.ToLowerInvariant();
     }
 }
