@@ -35,35 +35,63 @@ The current version:
 - prints human-readable console output
 - supports structured JSON output with `--json`
 - includes a short snippet around the match
-- optionally checks matched offers with AI using `--ai`
+- checks matched offers with AI when OpenAI configuration is available
 - can process all `.txt` files in a folder with `--folder`
 - can process saved `.eml` email files
 - can read recent unread messages from a dedicated Gmail IMAP mailbox with `--mailbox`
 
-## Example
+## Main Flow
+
+```bash
+dotnet run -- --mailbox
+```
+
+Mailbox mode reads unread promotional emails from a dedicated Gmail mailbox, evaluates candidate matches with AI, forwards relevant messages, and marks successfully processed messages as read.
+
+Example output:
+
+```text
+From: Kid Interiør <newsletter@example.com>
+Subject: Weekendtilbud
+Relevant: yes
+
+Store: Kid
+Matched: Barn og baby
+Mode: any
+Keywords: barn og baby, barn og babyvarer, babyvarer
+Snippet: Barn og babyvarer 40%
+AI relevant: True
+AI confidence: high
+AI reason: The email describes an offer on baby or children's items from Kid.
+```
+
+## Developer Testing
+
+Process a saved `.txt` or `.eml` sample:
 
 ```bash
 dotnet run -- samples/barnashus-reflex-70.txt
 ```
 
-Example output:
-
-```text
-Relevant: yes
-
-Store: Barnas Hus
-Matched: Reflex 70%
-Mode: all
-Keywords: reflex, 70%
-Snippet: From: Barnas Hus Subject: VINTERSALG ALT fra Reflex -70% ...
-Note: Must mean 70% on Reflex, not just Reflex mentioned somewhere and 70% on something else.
-```
-
-JSON output:
+Process all samples in a folder:
 
 ```bash
-dotnet run -- samples/barnashus-reflex-70.txt --json
+dotnet run -- --folder samples
 ```
+
+Use JSON output for scripts or regression checks:
+
+```bash
+dotnet run -- --folder samples --json
+```
+
+Print extracted text for debugging parser issues:
+
+```bash
+dotnet run -- samples/private/newsletter.eml --debug-extracted-text
+```
+
+`--debug-extracted-text` prints email contents to the console. Use it only for local debugging, especially with real emails.
 
 ## Watchlist
 
@@ -117,7 +145,7 @@ Matches only if all keywords are found.
 
 Useful when an offer depends on a combination, for example both `reflex` and `70%`.
 
-This is still a simple rule and may produce false positives if the keywords appear in different parts of the newsletter. The optional AI relevance check can help handle this better.
+This is still a simple rule and may produce false positives if the keywords appear in different parts of the newsletter. AI relevance checks help handle this when OpenAI configuration is available.
 
 ## Run locally
 
@@ -126,10 +154,18 @@ Requirements:
 - .NET SDK
 - YamlDotNet package
 
-Run:
+Run the main mailbox flow:
 
 ```bash
 dotnet restore
+dotnet run -- --mailbox
+```
+
+Mailbox mode requires OpenAI configuration. File and folder sample commands use AI automatically when OpenAI configuration is available, and fall back to rule-based output when it is missing.
+
+Run a local sample:
+
+```bash
 dotnet run -- samples/kid-baby.txt
 ```
 
@@ -139,13 +175,7 @@ Run with JSON output:
 dotnet run -- samples/kid-baby.txt --json
 ```
 
-Process a folder of `.txt` samples:
-
-```bash
-dotnet run -- --folder samples
-```
-
-Process a folder with JSON output:
+Process a folder of `.txt` and `.eml` samples:
 
 ```bash
 dotnet run -- --folder samples --json
@@ -159,26 +189,13 @@ dotnet run -- samples/private/newsletter.eml
 
 When processing `.eml` files, Offer Watch extracts the email `From`, `Subject` and body text. It prefers the plain text body, and falls back to readable text from the HTML body when needed. Folder mode processes both `.txt` and `.eml` files.
 
-Run file or folder checks with AI relevance checking:
-
-```bash
-export OPENAI_API_KEY="your-api-key"
-dotnet run -- samples/kid-baby.txt --ai
-```
-
-In file and folder modes, AI relevance checks only run when `--ai` is provided. The app sends each rule-based match to the model with the store, product interest, matched keywords, notes and snippet, then prints:
+When AI runs, the app sends each rule-based match to the model with the store, product interest, matched keywords, notes and snippet, then prints:
 
 - `AI relevant`
 - `AI confidence`
 - `AI reason`
 
-Use AI with JSON output:
-
-```bash
-dotnet run -- samples/kid-baby.txt --json --ai
-```
-
-By default, `--ai` uses `gpt-4o-mini`. You can override the model:
+By default, Offer Watch uses `gpt-4o-mini`. You can override the model:
 
 ```bash
 export OPENAI_MODEL="gpt-4o-mini"
@@ -226,13 +243,13 @@ Mailbox mode reads recent unread messages from a dedicated Gmail offers mailbox 
 dotnet run -- --mailbox
 ```
 
-Use JSON output:
+Use JSON output for developer inspection:
 
 ```bash
 dotnet run -- --mailbox --json
 ```
 
-Mailbox mode uses AI relevance checks by default. The `--ai` flag is still accepted in mailbox mode, but it is not required.
+Mailbox mode uses AI relevance checks by default and requires OpenAI configuration.
 
 Required configuration values:
 
@@ -327,7 +344,7 @@ Gmail app passwords are used here only as a pragmatic local MVP setup for a dedi
 - Support `negativeKeywords`
 - Output structured JSON with `--json`
 - Add snippets around matched keywords
-- Add optional AI relevance checks with `--ai`
+- Add AI relevance checks
 - Add folder processing with `--folder`
 - Add local `.eml` file support
 - Add local Gmail IMAP mailbox MVP with `--mailbox`

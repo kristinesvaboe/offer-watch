@@ -2,9 +2,9 @@ var configuration = OfferWatchConfiguration.Load();
 
 if (args.Length == 0)
 {
-    Console.WriteLine("Usage: dotnet run -- samples/barnashus-reflex-70.txt [--json] [--ai]");
-    Console.WriteLine("       dotnet run -- --folder samples [--json] [--ai]");
-    Console.WriteLine("       dotnet run -- --mailbox [--json] [--ai]");
+    Console.WriteLine("Usage: dotnet run -- --mailbox [--json]");
+    Console.WriteLine("       dotnet run -- samples/barnashus-reflex-70.txt [--json]");
+    Console.WriteLine("       dotnet run -- --folder samples [--json]");
     return;
 }
 
@@ -16,8 +16,6 @@ var folderPath = folderMode && folderIndex + 1 < args.Length
     : "";
 var emailPath = folderMode || mailboxMode ? "" : args[0];
 var jsonOutput = args.Contains("--json");
-var aiOutput = args.Contains("--ai");
-var useAi = aiOutput || mailboxMode;
 var debugExtractedText = args.Contains("--debug-extracted-text");
 
 if (folderMode && string.IsNullOrWhiteSpace(folderPath))
@@ -49,26 +47,22 @@ AiRelevanceChecker? aiChecker = null;
 using var httpClient = new HttpClient();
 var consoleOutput = new ConsoleOutputWriter();
 var jsonOutputWriter = new JsonOutputWriter();
+var apiKey = OfferWatchConfiguration.GetOpenAiApiKey(configuration);
 
-if (useAi)
+if (string.IsNullOrWhiteSpace(apiKey))
 {
-    var apiKey = OfferWatchConfiguration.GetOpenAiApiKey(configuration);
-    if (string.IsNullOrWhiteSpace(apiKey))
+    if (mailboxMode)
     {
-        if (mailboxMode)
-        {
-            WriteMailboxConfigurationError(
-                "OfferWatch:OpenAI:ApiKey or OPENAI_API_KEY is required when using --mailbox.",
-                jsonOutput,
-                jsonOutputWriter
-            );
-            return;
-        }
-
-        Console.WriteLine("OPENAI_API_KEY is required when using --ai.");
+        WriteMailboxConfigurationError(
+            "OfferWatch:OpenAI:ApiKey or OPENAI_API_KEY is required when using --mailbox.",
+            jsonOutput,
+            jsonOutputWriter
+        );
         return;
     }
-
+}
+else
+{
     aiChecker = new AiRelevanceChecker(httpClient, apiKey, OfferWatchConfiguration.GetOpenAiModel(configuration));
 }
 
@@ -103,7 +97,7 @@ if (folderMode)
         return;
     }
 
-    consoleOutput.WriteFolder(fileResults, aiOutput);
+    consoleOutput.WriteFolder(fileResults, aiChecker is not null);
     return;
 }
 
@@ -191,7 +185,7 @@ if (jsonOutput)
     return;
 }
 
-consoleOutput.WriteSingleFile(results, aiOutput);
+consoleOutput.WriteSingleFile(results, aiChecker is not null);
 
 static async Task<List<MatchResult>> ProcessFileAsync(
     string emailPath,
